@@ -1,0 +1,2 @@
+# LPPL
+Compilador MenosC
