@@ -77,8 +77,8 @@ comentario "//".*
 
 
 
-{constante}     { retornar (CONSTANTE_) ; }
-{id}            { retornar (ID_) ; }
+{constante}     { yylval.cent = atoi(yytext); retornar (CONSTANTE_) ; }
+{id}            { yylval.ident = strdup(yytext); retornar (ID_) ; }
 {finlinea}      { if (verbosidad) { ECHO; fprintf (stdout, "%3d.- ", yylineno); } }
 .               { yyerror("Símbolo desconocido") ; }
 

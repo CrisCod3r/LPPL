@@ -5,7 +5,14 @@
 #include <stdio.h>
 #include <string.h>
 #include "header.h"
+#include "libtds.h"
 %}
+//Uniones
+%union {
+    char *ident;       /* Nombre del identificador*/
+    int cent;          /* Valor de la cte numerica entera*/
+}
+
 //Terminales
 %token AND_ OR_ IGUAL_ DESIGUAL_ 
 
@@ -19,12 +26,16 @@
 
 %token IF_ ELSE_ WHILE_ TRUE_ FALSE_ 
 
-%token CONSTANTE_ ID_
+// Token con atributo
+%token<cent> CONSTANTE_
+%token<ident> ID_
+
+%type<cent> tipoSimple declaracionVariable
 
 //Gramática
 %%
 
-programa     : listaDeclaraciones
+programa     : {niv = 0; dvar = 0;} listaDeclaraciones
              ;
              
 listaDeclaraciones    : declaracion
@@ -32,16 +43,35 @@ listaDeclaraciones    : declaracion
                       ;
                       
 declaracion     : declaracionVariable
+                 {
+                    insTdS($1)
+                 }
                 | declaracionFuncion
                 ;
         
 declaracionVariable  : tipoSimple ID_ PUNTOYCOMA_
+                      {
+                        if (!insTdS($2,VARIABLE,$1,niv,dvar,-1))
+                            yyerror("Ya se encuentra definida esta variable")
+                        else dvar += TALLA_TIPO_SIMPLE;
+                      }
                      | tipoSimple ID_ OCOR_ CONSTANTE_ CCOR_ PUNTOYCOMA_
+                      {
+                        int numelem = $4;
+                        if ($4 <= 0) {
+                            yyerror("Talla inapropiada del array");
+                            numelem = 0;
+                        }
+                        int refe = insTdA($1, numelem);
+                        if (!insTdS($2, VARIABLE,T_ARRAY,niv,dvar,refe))
+                            yyerror("Identificador ya definido");
+                        else dvar += numelem * TALLA_TIPO_SIMPLE;
+                      }
                      | STRUCT_ OLLA_ listaCampos CLLA_ ID_ PUNTOYCOMA_
                      ;
         
-tipoSimple   : INT_ 
-             | BOOL_
+tipoSimple   : INT_ {$$ = T_ENTERO;}
+             | BOOL_ {$$ = T_LOGICO;}
              ;
         
 listaCampos   : tipoSimple ID_ PUNTOYCOMA_
