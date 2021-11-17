@@ -7,6 +7,28 @@
 #define FALSE 0
 #define TRUE  1
 
+#define ANDD 0
+#define ORR 1
+#define IGUALL 0
+#define DESIGUALL 1
+#define MAYORR 0
+#define MENORR 1
+#define MYIGUALL 2
+#define MNIGUALL 3
+#define MASS 0
+#define MENOSS 1
+#define MULTT 0
+#define DIVV 1 
+#define POSS 0
+#define NEGG 1
+#define NOTT 2
+
+typedef struct exp {
+    int tipo;
+    int valor;    
+} EXP;
+
+
 /***************************************************** Constantes simbolicas */
 #define TALLA_TIPO_SIMPLE 1      /* Talla asociada a los tipos simples       */
 #define TALLA_SEGENLACES  2      /* Talla del segmento de Enlaces de Control */

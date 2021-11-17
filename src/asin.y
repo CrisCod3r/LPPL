@@ -11,6 +11,7 @@
 %union {
     char *ident;       /* Nombre del identificador*/
     int cent;          /* Valor de la cte numerica entera*/
+    EXP exp;
 }
 
 //Terminales
@@ -32,6 +33,9 @@
 
 %type<cent> tipoSimple declaracionVariable
 
+%type<exp> constante 
+%type<cent> operadorAditivo operadorIgualdad operadorLogico 
+%type<cent> operadorMultiplicativo operadorRelacional operadorUnario
 //Gramática
 %%
 
@@ -145,17 +149,33 @@ expresionUnaria  : expresionSufija
                  | operadorUnario expresionUnaria
                  ;
         
-expresionSufija  : constante
-                 | OPAR_ expresion CPAR_
-                 | ID_
+expresionSufija  : constante { $$.tipo = $1.tipo; $$.valor = $1.valor; }
+                 | OPAR_ expresion CPAR_ { $$.tipo = $2.tipo; $$.valor = $2.valor; }
+                 | ID_ 
+                  {
+                    // Creo que solo se necesita el cent para el tipo
+                    SIMB id = obtTdS($1);
+                    $$.tipo = T_ERROR;
+                    $$.valor = -1;
+                    if (id.t == T_ERROR) {
+                      yyerror("Variable no definida");
+                    }
+                    else if (id.t == T_ARRAY) {
+                      yyerror("Array sin indice");
+                    }
+                    else {
+                      $$.tipo = sim.t;
+                      $$.valor = sim.d;
+                    }
+                  }
                  | ID_ PUNTO_ ID_
                  | ID_ OCOR_ expresion CCOR_
                  | ID_ OPAR_ parametrosActuales CPAR_
                  ;
         
-constante    : CONSTANTE_
-             | TRUE_
-             | FALSE_
+constante    : CONSTANTE_ { $$.tipo = T_ENTERO; $$.valor = $1; }
+             | TRUE_ { $$.tipo = T_LOGICO; $$.valor = TRUE; }
+             | FALSE_ { $$.tipo = T_LOGICO; $$.valor = FALSE; }
              ;
         
 parametrosActuales  : 
@@ -166,31 +186,31 @@ listaParametrosActuales : expresion
                         | expresion COMA_ listaParametrosActuales
                         ;
         
-operadorLogico   : AND_
-                 | OR_
+operadorLogico   : AND_ { $$ = ANDD; }
+                 | OR_  { $$ = ORR; }
                  ;
         
-operadorIgualdad   : IGUAL_
-                   | DESIGUAL_
+operadorIgualdad   : IGUAL_ { $$ = IGUALL; }
+                   | DESIGUAL_ { $$ = DESIGUALL; }
                    ;
         
-operadorRelacional   : MAYOR_
-                     | MENOR_
-                     | MAYORIGUAL_
-                     | MENORIGUAL_
+operadorRelacional   : MAYOR_ { $$ = MAYORR; }
+                     | MENOR_ { $$ = MENORR; }
+                     | MAYORIGUAL_ { $$ = MYIGUALL; }
+                     | MENORIGUAL_ { $$ = MNIGUALL; }
                      ;
         
-operadorAditivo   : MAS_
-                  | MENOS_
+operadorAditivo   : MAS_ { $$ = MASS; }
+                  | MENOS_ { $$ = MENOSS; }
                   ;
         
-operadorMultiplicativo   : MULT_
-                         | DIV_
+operadorMultiplicativo   : MULT_ { $$ = MULTT; }
+                         | DIV_ { $$ = DIVV; }
                          ;
         
-operadorUnario   : MAS_
-                 | MENOS_
-                 | NEGACION_
+operadorUnario   : MAS_ { $$ = POSS; }
+                 | MENOS_ {$$ = NEGG; }
+                 | NEGACION_ { $$ = NOTT; }
                  ;
         
 
