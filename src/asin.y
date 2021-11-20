@@ -33,9 +33,13 @@
 
 %type<cent> tipoSimple declaracionVariable
 
-%type<exp> constante 
+%type<cent> constante 
 %type<cent> operadorAditivo operadorIgualdad operadorLogico 
 %type<cent> operadorMultiplicativo operadorRelacional operadorUnario
+%type<cent> expresionSufija expresionUnaria expresionRelacional
+%type<cent> expresionMultiplicativa expresionIgualidad expresionAditiva
+%type<cent> expresion
+%type<cent> parametrosActuales listaParametrosActuales
 //Gramática
 %%
 
@@ -126,64 +130,196 @@ instruccionSeleccion   : IF_ OPAR_ expresion CPAR_ instruccion ELSE_ instruccion
 instruccionIteracion   : WHILE_ OPAR_ expresion CPAR_ instruccion
                       ;
         
-expresion     : expresionIgualidad
+expresion     : expresionIgualidad { $$ = $1; }
               | expresion operadorLogico expresionIgualidad
+               {
+                 if ($1 == T_ERROR || $3 == T_ERROR)
+                   $$ = T_ERROR;
+                 else if ($1 == $3 == T_LOGICO)
+                   $$ = T_LOGICO;
+                 else {
+                   $$ = T_ERROR;
+                   yyerror("Operador no compatible con los tipos");
+                 }
+               }
               ;
         
-expresionIgualidad  : expresionRelacional
+expresionIgualidad  : expresionRelacional { $$ = $1; }
                     | expresionIgualidad operadorIgualdad expresionRelacional
+                     {
+                       if ($1 == T_ERROR || $3 == T_ERROR)
+                         $$ = T_ERROR;
+                       else if ($1 == $3)
+                         $$ = T_LOGICO;
+                       else {
+                         $$ = T_ERROR;
+                         yyerror("Operador no compatible con los tipos");
+                       }                         
+                     }
                     ;
         
-expresionRelacional  : expresionAditiva
+expresionRelacional  : expresionAditiva { $$ = $1; }
                      | expresionRelacional operadorRelacional expresionAditiva
+                      {
+                        if ($1 == T_ERROR || $3 == T_ERROR)
+                          $$ = T_ERROR;
+                        else if ($1 == $3 == T_ENTERO)
+                          $$ = T_LOGICO;
+                        else {
+                          $$ = T_ERROR;
+                          yyerror("Operador no compatible con los tipos");
+                        }
+                      }
                      ;
         
-expresionAditiva  : expresionMultiplicativa
+expresionAditiva  : expresionMultiplicativa { $$ = $1; }
                   | expresionAditiva operadorAditivo expresionMultiplicativa
+                   {
+                     if ($1 == T_ERROR || $3 == T_ERROR)
+                       $$ = T_ERROR;
+                     else if ($1 == $3 == T_ENTERO) 
+                       $$ = T_ENTERO;
+                     else {
+                       $$ = T_ERROR;
+                       yyerror("Operador no compatible con los tipos");
+                     }
+                   }                 
                   ;
         
-expresionMultiplicativa  : expresionUnaria
-                         | expresionMultiplicativa operadorMultiplicativo expresionUnaria                        ;
+expresionMultiplicativa  : expresionUnaria { $$ = $1; }
+                         | expresionMultiplicativa operadorMultiplicativo expresionUnaria                        
+                          {
+                            if ($1 == T_ERROR || $3 == T_ERROR)
+                              $$ = T_ERROR;
+                            else if ($1 == $3 == T_ENTERO)
+                              $$ = T_ENTERO;
+                            else {
+                              $$ = T_ERROR;
+                              yyerror("Operador no compatible con los tipos");
+                            }
+                          }
+                         ;
         
-expresionUnaria  : expresionSufija
-                 | operadorUnario expresionUnaria
+expresionUnaria  : expresionSufija { $$ = $1; }
+                 | operadorUnario expresionUnaria 
+                  {
+                    if ($2 == T_ERROR)
+                      $$ = $2;
+                    else if ($2 == T_LOGICO && $1 == NOTT)
+                      $$ = T_LOGICO;
+                    else if ($2 == T_ENTERO && $1 != NOTT)
+                      $$ = T_ENTERO;
+                    else {
+                      $$ = T_ERROR;
+                      yyerror("Operador no compatible con los tipos");
+                    }
+                  }
                  ;
         
-expresionSufija  : constante { $$.tipo = $1.tipo; $$.valor = $1.valor; }
-                 | OPAR_ expresion CPAR_ { $$.tipo = $2.tipo; $$.valor = $2.valor; }
+expresionSufija  : constante { $$ = $1; }
+                 | OPAR_ expresion CPAR_ { $$ = $2; }
                  | ID_ 
                   {
-                    // Creo que solo se necesita el cent para el tipo
                     SIMB id = obtTdS($1);
-                    $$.tipo = T_ERROR;
-                    $$.valor = -1;
+                    $$ = T_ERROR;
                     if (id.t == T_ERROR) {
                       yyerror("Variable no definida");
                     }
                     else if (id.t == T_ARRAY) {
                       yyerror("Array sin indice");
                     }
+                    else if (id.t == T_RECORD) {
+                      yyerror("No se accede a ningun registro");
+                    }
                     else {
-                      $$.tipo = sim.t;
-                      $$.valor = sim.d;
+                      $$ = sim.t;
                     }
                   }
                  | ID_ PUNTO_ ID_
+                  {
+                    SIMB id = obtTdS($1);
+                    $$ = T_ERROR;
+                    if (id.t == T_ERROR) {                      
+                      yyerror("Variable no definida");
+                    }
+                    else if (id.t != T_RECORD) {
+                      yyerror("Variable no es de tipo STRUCT");
+                    }
+                    else {
+                      CAMP reg = obtTdR(id.ref, $3);
+                      if (reg.t == T_ERROR) {
+                        yyerror("Registro no definido");
+                      }
+                      else if (id.t == T_ARRAY) {
+                        yyerror("Array sin indice");
+                      }
+                      else if (id.t == T_RECORD) {
+                        yyerror("No se accede a ningun registro");
+                      }
+                      else {
+                        $$ = reg.t;
+                      }
+                    }
+                  }
                  | ID_ OCOR_ expresion CCOR_
+                  {
+                    SIMB id = obtTdS($1);
+                    $$ = T_ERROR;
+                    if (id.t == T_ERROR) {                      
+                      yyerror("Variable no definida");
+                    }
+                    else if (id.t != T_ARRAY) {
+                      yyerror("Variable no es de tipo ARRAY");
+                    }
+                    else {
+                      DIM elem = obtTdA(id.ref);
+                      if ($3 != T_ENTERO) {
+                        yyerror("Expresion de acceso a array invalida");
+                      }
+                      else {
+                        $$ = elem.telem;
+                      }
+                    }
+                  }
                  | ID_ OPAR_ parametrosActuales CPAR_
+                  {
+                    SIMB id = obtTdS($1);
+                    $$ = T_ERROR;
+                    if (id.t == T_ERROR) {
+                      yyerror("Variable no definida");
+                    }
+                    else {
+                      INF func = obtTdD(id.ref);
+                      if (func.tipo == T_ERROR) {
+                        yyerror("Esta variable no es una funcion");
+                      }
+                      else if (!cmpDom(id.ref, $3)){
+                        yyerror("Parametros no adecuados para la funcion");
+                      }
+                      else {
+                        $$ = func.tipo;
+                      }
+                    }
+                  }
                  ;
         
-constante    : CONSTANTE_ { $$.tipo = T_ENTERO; $$.valor = $1; }
-             | TRUE_ { $$.tipo = T_LOGICO; $$.valor = TRUE; }
-             | FALSE_ { $$.tipo = T_LOGICO; $$.valor = FALSE; }
+constante    : CONSTANTE_ { $$ = T_ENTERO; }
+             | TRUE_ { $$ = T_LOGICO; }
+             | FALSE_ { $$ = T_LOGICO; }
              ;
         
-parametrosActuales  : 
+parametrosActuales  : { insTdD(-1, T_VACIO); }
                     | listaParametrosActuales
+                     {
+                       $$ = $1;
+                     }
                     ;
         
-listaParametrosActuales : expresion
+listaParametrosActuales : expresion { $$ = insTdD(-1, $1); }
                         | expresion COMA_ listaParametrosActuales
+                         {
+                           $$ = insTdD($3, $1);
+                         }
                         ;
         
 operadorLogico   : AND_ { $$ = ANDD; }
