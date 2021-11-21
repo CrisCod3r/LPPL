@@ -99,7 +99,7 @@ listaCampos   : tipoSimple ID_ PUNTOYCOMA_
                {
                  int refe = insTdR(-1,$2,$1,0);
                  if (refe == -1) {
-                   yyerror("Nombre de campo repetido);
+                   yyerror("Nombre de campo repetido");
                  }
                  else {
                    $$.numCampos = 1; 
