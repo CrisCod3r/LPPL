@@ -114,22 +114,73 @@ instruccion    : OLLA_ listaInstrucciones CLLA_
                | instruccionEntradaSalida
                | instruccionIteracion
                ;
-        
+
 instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
+                          {                            
+                            SIMB id = obtTdS($1);
+                            if (id.t == T_ERROR) 
+                              yyerror("La variable no esta definida");
+                            else if ($3 != T_ERROR && id.t != $3) {
+                              yyerror("El tipo de la variable y la expresion no concuerdan");
+                            }
+                          }
                         | ID_ OCOR_ expresion CCOR_ ASIG_ expresion PUNTOYCOMA_
+                          {
+                            SIMB id = obtTdS($1);
+                            DIM dim = obtTdA(id.ref);
+                            if (id.t == T_ERROR)
+                              yyerror("La variable no esta definida");
+                            else if (id.t != T_ARRAY)
+                              yyerror("La variable referenciada no es tipo array");
+                            else if ($3 != T_ERROR && $3 != T_ENTERO)
+                              yyerror("Expresion de acceso a array invalida");
+                            else if ($6 != dim.telem)
+                              yyerror("El tipo de la variable y la expresion no concuerdan");
+                          }
                         | ID_ PUNTO_ ID_ ASIG_ expresion PUNTOYCOMA_
+                          {
+                            SIMB id = obtTdS($1);
+                            CAMP reg = obtTdR(id.ref, $3);
+                            if (id.t == T_ERROR)
+                              yyerror("La variable no esta definida");
+                            else if (id.t != T_RECORD)
+                              yyerror("La variable referenciada no es tipo array");
+                            else if (reg.t != $5)
+                              yyerror("El tipo de la variable y la expresion no concuerdan");
+                          }
                         ;
         
 instruccionEntradaSalida  : READ_ OPAR_ ID_ CPAR_ PUNTOYCOMA_
+                            {
+                              SIMB id = obtTdS($3);
+                              if (id.t == T_ERROR) 
+                                yyerror("La variable no esta definida");
+                              else if (id.t != T_ENTERO) 
+                                yyerror("La variable de lectura no es de tipo entero");
+                            }
                           | PRINT_ OPAR_ expresion CPAR_ PUNTOYCOMA_
+                            {
+                              if ($3 != T_ERROR && $3 != T_ENTERO)
+                                yyerror("La expresion a imprimir no es de tipo entero");
+                            }
                           ;
         
-instruccionSeleccion   : IF_ OPAR_ expresion CPAR_ instruccion ELSE_ instruccion
+instruccionSeleccion   : IF_ OPAR_ expresion CPAR_ 
+                        {
+                          if ($3 != T_ERROR && $3 != T_LOGICO) 
+                            yyerror("Condicion del if no es bool");
+                        }
+                         instruccion ELSE_ instruccion
                        ;
         
-instruccionIteracion   : WHILE_ OPAR_ expresion CPAR_ instruccion
-                      ;
-        
+instruccionIteracion   : WHILE_ OPAR_ expresion CPAR_ 
+                         {
+                           if ($3 != T_ERROR && $3 != T_LOGICO) 
+                             yyerror("Condicion del while no es bool");
+                         }
+                         instruccion
+                       ;
+
 expresion     : expresionIgualidad { $$ = $1; }
               | expresion operadorLogico expresionIgualidad
                {
