@@ -28,6 +28,16 @@ typedef struct exp {
     int valor;    
 } EXP;
 
+typedef struct lc {
+    int numCampos;
+    int talla;
+    int refe;
+} LC;
+
+typedef struct lpf {
+    int refe;
+    int talla;
+} LPF;
 
 /***************************************************** Constantes simbolicas */
 #define TALLA_TIPO_SIMPLE 1      /* Talla asociada a los tipos simples       */

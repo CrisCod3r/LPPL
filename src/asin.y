@@ -12,6 +12,8 @@
     char *ident;       /* Nombre del identificador*/
     int cent;          /* Valor de la cte numerica entera*/
     EXP exp;
+    LC lc;
+    LPF lpf;
 }
 
 //Terminales
@@ -40,27 +42,31 @@
 %type<cent> expresionMultiplicativa expresionIgualidad expresionAditiva
 %type<cent> expresion
 %type<cent> parametrosActuales listaParametrosActuales
+%type<lc> listaCampos
+%type<lpf> listaParametrosFormales parametrosFormales
+%type<cent> declaracionFuncion
 //Gramática
 %%
 
-programa     : {niv = 0; dvar = 0;} listaDeclaraciones
+programa     : {niv = 0; dvar = 0; cargaContexto(niv);} listaDeclaraciones
+               {
+                if ($2 == 0) {yyerror("No se ha definido funcion main");}
+                else if ($2 > 1) {yyerror("Se ha definido mas de una funcion main");}
+               }
              ;
              
-listaDeclaraciones    : declaracion
-                      | listaDeclaraciones declaracion
+listaDeclaraciones    : declaracion {$$ = $1;}
+                      | listaDeclaraciones declaracion {$$ = $1 + $2;}
                       ;
                       
-declaracion     : declaracionVariable
-                 {
-                    insTdS($1)
-                 }
-                | declaracionFuncion
+declaracion     : declaracionVariable {$$ = 0;} // No se define funcion main
+                | declaracionFuncion {$$ = $1;} // Puede que se haya definido una funcion main
                 ;
         
 declaracionVariable  : tipoSimple ID_ PUNTOYCOMA_
                       {
                         if (!insTdS($2,VARIABLE,$1,niv,dvar,-1))
-                            yyerror("Ya se encuentra definida esta variable")
+                            yyerror("Identificador ya definido");
                         else dvar += TALLA_TIPO_SIMPLE;
                       }
                      | tipoSimple ID_ OCOR_ CONSTANTE_ CCOR_ PUNTOYCOMA_
@@ -76,6 +82,13 @@ declaracionVariable  : tipoSimple ID_ PUNTOYCOMA_
                         else dvar += numelem * TALLA_TIPO_SIMPLE;
                       }
                      | STRUCT_ OLLA_ listaCampos CLLA_ ID_ PUNTOYCOMA_
+                      {
+                        if (!insTdS($5,VARIABLE,T_RECORD,niv,dvar,$3.refe)) {
+                          yyerror("Identificador ya definido");
+                        } else {
+                          dvar += $3.numCampos * TALLA_TIPO_SIMPLE;
+                        }
+                      }
                      ;
         
 tipoSimple   : INT_ {$$ = T_ENTERO;}
@@ -83,21 +96,86 @@ tipoSimple   : INT_ {$$ = T_ENTERO;}
              ;
         
 listaCampos   : tipoSimple ID_ PUNTOYCOMA_
+               {
+                 int refe = insTdR(-1,$2,$1,0);
+                 if (refe == -1) {
+                   yyerror("Nombre de campo repetido);
+                 }
+                 else {
+                   $$.numCampos = 1; 
+                   $$.refe = refe;
+                   $$.talla = TALLA_TIPO_SIMPLE;
+                 }
+               }
+               
               | listaCampos tipoSimple ID_ PUNTOYCOMA_
+               {
+                 int refe = $1.refe;
+                 if (insTdR(refe,$3,$2,$1.numCampos) == -1) {
+                   yyerror("Nombre de campo repetido");
+                 }
+                 else {
+                   $$.refe = refe;
+                   $$.numCampos = $1.numCampos + 1; //¿Podemos expresar numero de campos como talla?
+                   $$.talla = $1.talla + TALLA_TIPO_SIMPLE;
+                 }
+               }
               ;
         
-declaracionFuncion  : tipoSimple ID_ OPAR_ parametrosFormales CPAR_ bloque
+declaracionFuncion  : {niv++; cargaContexto(niv); $$ = dvar; dvar = 0;} 
+
+                     tipoSimple ID_ OPAR_ parametrosFormales CPAR_ 
+                     
+                     {
+                        if (!insTdS($3,FUNCION,$2,niv-1,dvar,-1)) {
+                          yyerror("Nombre de funcion repetido");
+                        }
+                        if (strcmp($3, "main\0") == 0) $$ = 1; // Se declara funcion main
+                        else $$ = 0; // No se declara funcion main
+                     }
+                      
+                     bloque 
+                     
+                     { descargaContexto(niv); niv--; dvar = $$;}
+                      
                     ;
         
-parametrosFormales  : 
-                    | listaParametrosFormales
+parametrosFormales  : {$$.refe = insTdD(-1,T_VACIO); $$.talla = 0;}
+                    | listaParametrosFormales {
+                        $$.refe = $1.refe;
+                        $$.talla = $1.talla - TALLA_SEGENLACES;
+                      }
                     ;
         
 listaParametrosFormales : tipoSimple ID_
+                          {
+                            int refe = insTdD(-1, $1);
+                            $$.refe = refe;
+                            int talla = TALLA_TIPO_SIMPLE + TALLA_SEGENLACES;
+                            $$.talla = talla;
+                            if (!insTdS($2,PARAMETRO,$1,niv,-talla,-1)) {
+                              yyerror("Nombre de parametro duplicado");
+                            }
+                          }
                         | tipoSimple ID_ COMA_ listaParametrosFormales
+                          {
+                            insTdD($4.refe,$1); // La referencia que se devuelve es la misma que la de $4.refe??
+                            $$.refe = $4.refe;
+                            int talla = $4.talla + TALLA_TIPO_SIMPLE;
+                            $$.talla = talla;
+                            if (!insTdS($2,PARAMETRO,$1,niv,-talla,-1)) {
+                              yyerror("Nombre de parametro duplicado");
+                            }
+                          }
                         ;
         
 bloque    : OLLA_ declaracionVariableLocal listaInstrucciones RETURN_  expresion PUNTOYCOMA_ CLLA_
+            {
+              INF fun = obtTdD(-1);
+              if (fun.tipo != T_ERROR) {
+                if (fun.tipo != $5.tipo) yyerror("Valor de retorno distinto del de la funcion");
+              } 
+            }
           ;
         
 declaracionVariableLocal   : 
