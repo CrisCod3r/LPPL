@@ -7,13 +7,22 @@
 #include "header.h"
 #include "libtds.h"
 %}
+
 //Uniones
 %union {
     char *ident;       /* Nombre del identificador*/
     int cent;          /* Valor de la cte numerica entera*/
-    EXP exp;
-    LC lc;
-    LPF lpf;
+    /*LC lc;
+    LPF lpf;*/
+    struct {
+        int talla;
+        int refe;
+    } LC;
+
+    struct {
+        int talla;
+        int refe;
+    } LPF;
 }
 
 //Terminales
@@ -34,7 +43,7 @@
 %token<ident> ID_
 
 %type<cent> tipoSimple declaracionVariable
-
+%type<cent> listaDeclaraciones declaracion
 %type<cent> constante 
 %type<cent> operadorAditivo operadorIgualdad operadorLogico 
 %type<cent> operadorMultiplicativo operadorRelacional operadorUnario
@@ -42,8 +51,8 @@
 %type<cent> expresionMultiplicativa expresionIgualidad expresionAditiva
 %type<cent> expresion
 %type<cent> parametrosActuales listaParametrosActuales
-%type<lc> listaCampos
-%type<lpf> listaParametrosFormales parametrosFormales
+%type<LC> listaCampos
+%type<LPF> listaParametrosFormales parametrosFormales
 %type<cent> declaracionFuncion
 //Gramática
 %%
@@ -86,7 +95,7 @@ declaracionVariable  : tipoSimple ID_ PUNTOYCOMA_
                         if (!insTdS($5,VARIABLE,T_RECORD,niv,dvar,$3.refe)) {
                           yyerror("Identificador ya definido");
                         } else {
-                          dvar += $3.numCampos * TALLA_TIPO_SIMPLE;
+                          dvar += $3.talla;
                         }
                       }
                      ;
@@ -102,7 +111,6 @@ listaCampos   : tipoSimple ID_ PUNTOYCOMA_
                    yyerror("Nombre de campo repetido");
                  }
                  else {
-                   $$.numCampos = 1; 
                    $$.refe = refe;
                    $$.talla = TALLA_TIPO_SIMPLE;
                  }
@@ -111,36 +119,36 @@ listaCampos   : tipoSimple ID_ PUNTOYCOMA_
               | listaCampos tipoSimple ID_ PUNTOYCOMA_
                {
                  int refe = $1.refe;
-                 if (insTdR(refe,$3,$2,$1.numCampos) == -1) {
+                 if (insTdR(refe,$3,$2,$1.talla) == -1) {
                    yyerror("Nombre de campo repetido");
                  }
                  else {
                    $$.refe = refe;
-                   $$.numCampos = $1.numCampos + 1; //¿Podemos expresar numero de campos como talla?
                    $$.talla = $1.talla + TALLA_TIPO_SIMPLE;
                  }
                }
               ;
         
-declaracionFuncion  : {niv++; cargaContexto(niv); $$ = dvar; dvar = 0;} 
+declaracionFuncion  : { niv++; cargaContexto(niv); $<cent>$ = dvar; dvar = 0; } 
 
                      tipoSimple ID_ OPAR_ parametrosFormales CPAR_ 
                      
                      {
-                        if (!insTdS($3,FUNCION,$2,niv-1,dvar,-1)) {
+                        if (!insTdS($3,FUNCION,$2,niv-1,dvar,$5.refe)) {
                           yyerror("Nombre de funcion repetido");
                         }
-                        if (strcmp($3, "main\0") == 0) $$ = 1; // Se declara funcion main
-                        else $$ = 0; // No se declara funcion main
+                        // Se declara funcion main
+                        else if (strcmp($3, "main\0") == 0) $<cent>$ = 1; 
+                        else $<cent>$ = 0; // No se declara funcion main
                      }
                       
                      bloque 
                      
-                     { descargaContexto(niv); niv--; dvar = $$;}
+                     { descargaContexto(niv); niv--; dvar = $<cent>1; $$ = $<cent>7; }
                       
                     ;
         
-parametrosFormales  : {$$.refe = insTdD(-1,T_VACIO); $$.talla = 0;}
+parametrosFormales  : /* epsilon */ { $$.refe = insTdD(-1,T_VACIO); $$.talla = 0; }
                     | listaParametrosFormales {
                         $$.refe = $1.refe;
                         $$.talla = $1.talla - TALLA_SEGENLACES;
@@ -153,17 +161,17 @@ listaParametrosFormales : tipoSimple ID_
                             $$.refe = refe;
                             int talla = TALLA_TIPO_SIMPLE + TALLA_SEGENLACES;
                             $$.talla = talla;
-                            if (!insTdS($2,PARAMETRO,$1,niv,-talla,-1)) {
+                            if (!insTdS($2,PARAMETRO,$1,niv,-talla,refe)) {
                               yyerror("Nombre de parametro duplicado");
                             }
                           }
                         | tipoSimple ID_ COMA_ listaParametrosFormales
                           {
-                            insTdD($4.refe,$1); // La referencia que se devuelve es la misma que la de $4.refe??
-                            $$.refe = $4.refe;
+                            int refe = insTdD($4.refe,$1);
+                            $$.refe = refe;
                             int talla = $4.talla + TALLA_TIPO_SIMPLE;
                             $$.talla = talla;
-                            if (!insTdS($2,PARAMETRO,$1,niv,-talla,-1)) {
+                            if (!insTdS($2,PARAMETRO,$1,niv,-talla,refe)) {
                               yyerror("Nombre de parametro duplicado");
                             }
                           }
@@ -173,7 +181,7 @@ bloque    : OLLA_ declaracionVariableLocal listaInstrucciones RETURN_  expresion
             {
               INF fun = obtTdD(-1);
               if (fun.tipo != T_ERROR) {
-                if (fun.tipo != $5.tipo) yyerror("Valor de retorno distinto del de la funcion");
+                if (fun.tipo != $5) yyerror("Tipo del valor de retorno distinto del de la funcion");
               } 
             }
           ;
@@ -212,7 +220,7 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                               yyerror("La variable referenciada no es tipo array");
                             else if ($3 != T_ERROR && $3 != T_ENTERO)
                               yyerror("Expresion de acceso a array invalida");
-                            else if ($6 != dim.telem)
+                            else if ($6 != T_ERROR && $6 != dim.telem)
                               yyerror("El tipo de la variable y la expresion no concuerdan");
                           }
                         | ID_ PUNTO_ ID_ ASIG_ expresion PUNTOYCOMA_
@@ -222,8 +230,8 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                             if (id.t == T_ERROR)
                               yyerror("La variable no esta definida");
                             else if (id.t != T_RECORD)
-                              yyerror("La variable referenciada no es tipo array");
-                            else if (reg.t != $5)
+                              yyerror("La variable referenciada no es tipo registro");
+                            else if ($5 != T_ERROR && $5 != reg.t)
                               yyerror("El tipo de la variable y la expresion no concuerdan");
                           }
                         ;
@@ -246,7 +254,7 @@ instruccionEntradaSalida  : READ_ OPAR_ ID_ CPAR_ PUNTOYCOMA_
 instruccionSeleccion   : IF_ OPAR_ expresion CPAR_ 
                         {
                           if ($3 != T_ERROR && $3 != T_LOGICO) 
-                            yyerror("Condicion del if no es bool");
+                            yyerror("Condicion del if no es booleana");
                         }
                          instruccion ELSE_ instruccion
                        ;
@@ -254,7 +262,7 @@ instruccionSeleccion   : IF_ OPAR_ expresion CPAR_
 instruccionIteracion   : WHILE_ OPAR_ expresion CPAR_ 
                          {
                            if ($3 != T_ERROR && $3 != T_LOGICO) 
-                             yyerror("Condicion del while no es bool");
+                             yyerror("Condicion del while no es booleana");
                          }
                          instruccion
                        ;
@@ -264,7 +272,7 @@ expresion     : expresionIgualidad { $$ = $1; }
                {
                  if ($1 == T_ERROR || $3 == T_ERROR)
                    $$ = T_ERROR;
-                 else if ($1 == $3 == T_LOGICO)
+                 else if ($1 == $3 && $1 == T_LOGICO)
                    $$ = T_LOGICO;
                  else {
                    $$ = T_ERROR;
@@ -292,7 +300,7 @@ expresionRelacional  : expresionAditiva { $$ = $1; }
                       {
                         if ($1 == T_ERROR || $3 == T_ERROR)
                           $$ = T_ERROR;
-                        else if ($1 == $3 == T_ENTERO)
+                        else if ($1 == $3 && $1 == T_ENTERO)
                           $$ = T_LOGICO;
                         else {
                           $$ = T_ERROR;
@@ -306,7 +314,7 @@ expresionAditiva  : expresionMultiplicativa { $$ = $1; }
                    {
                      if ($1 == T_ERROR || $3 == T_ERROR)
                        $$ = T_ERROR;
-                     else if ($1 == $3 == T_ENTERO) 
+                     else if ($1 == $3 && $1 == T_ENTERO) 
                        $$ = T_ENTERO;
                      else {
                        $$ = T_ERROR;
@@ -320,7 +328,7 @@ expresionMultiplicativa  : expresionUnaria { $$ = $1; }
                           {
                             if ($1 == T_ERROR || $3 == T_ERROR)
                               $$ = T_ERROR;
-                            else if ($1 == $3 == T_ENTERO)
+                            else if ($1 == $3 && $1 == T_ENTERO)
                               $$ = T_ENTERO;
                             else {
                               $$ = T_ERROR;
@@ -361,7 +369,7 @@ expresionSufija  : constante { $$ = $1; }
                       yyerror("No se accede a ningun registro");
                     }
                     else {
-                      $$ = sim.t;
+                      $$ = id.t;
                     }
                   }
                  | ID_ PUNTO_ ID_
@@ -379,12 +387,13 @@ expresionSufija  : constante { $$ = $1; }
                       if (reg.t == T_ERROR) {
                         yyerror("Registro no definido");
                       }
-                      else if (id.t == T_ARRAY) {
+                      /*
+                      else if (reg.t == T_ARRAY) {
                         yyerror("Array sin indice");
                       }
-                      else if (id.t == T_RECORD) {
+                      else if (reg.t == T_RECORD) {
                         yyerror("No se accede a ningun registro");
-                      }
+                      }*/
                       else {
                         $$ = reg.t;
                       }
@@ -398,11 +407,11 @@ expresionSufija  : constante { $$ = $1; }
                       yyerror("Variable no definida");
                     }
                     else if (id.t != T_ARRAY) {
-                      yyerror("Variable no es de tipo ARRAY");
+                      yyerror("Variable no es de tipo array");
                     }
                     else {
                       DIM elem = obtTdA(id.ref);
-                      if ($3 != T_ENTERO) {
+                      if ($3 != T_ERROR && $3 != T_ENTERO) {
                         yyerror("Expresion de acceso a array invalida");
                       }
                       else {
@@ -426,7 +435,7 @@ expresionSufija  : constante { $$ = $1; }
                         yyerror("Parametros no adecuados para la funcion");
                       }
                       else {
-                        $$ = func.tipo;
+                        $$ = func.tipo; // Inseguro de mi mismo
                       }
                     }
                   }
@@ -437,7 +446,7 @@ constante    : CONSTANTE_ { $$ = T_ENTERO; }
              | FALSE_ { $$ = T_LOGICO; }
              ;
         
-parametrosActuales  : { insTdD(-1, T_VACIO); }
+parametrosActuales  : /*epsilon*/ { insTdD(-1, T_VACIO); }
                     | listaParametrosActuales
                      {
                        $$ = $1;

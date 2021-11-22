@@ -22,22 +22,17 @@
 #define POSS 0
 #define NEGG 1
 #define NOTT 2
-
-typedef struct exp {
-    int tipo;
-    int valor;    
-} EXP;
-
-typedef struct lc {
-    int numCampos;
+/*
+struct {
     int talla;
     int refe;
 } LC;
 
-typedef struct lpf {
-    int refe;
+struct {
     int talla;
+    int refe;
 } LPF;
+*/
 
 /***************************************************** Constantes simbolicas */
 #define TALLA_TIPO_SIMPLE 1      /* Talla asociada a los tipos simples       */
