@@ -129,7 +129,7 @@ listaCampos   : tipoSimple ID_ PUNTOYCOMA_
                }
               ;
         
-declaracionFuncion  : { niv++; cargaContexto(niv); $<cent>$ = dvar; dvar = 0; } 
+/*declaracionFuncion  : { niv++; cargaContexto(niv); $<cent>$ = dvar; dvar = 0; } 
 
                      tipoSimple ID_ OPAR_ parametrosFormales CPAR_ 
                      
@@ -146,7 +146,25 @@ declaracionFuncion  : { niv++; cargaContexto(niv); $<cent>$ = dvar; dvar = 0; }
                      
                      { descargaContexto(niv); niv--; dvar = $<cent>1; $$ = $<cent>7; }
                       
-                    ;
+                    ;*/
+declaracionFuncion  : 
+
+                    tipoSimple ID_  { niv++; cargaContexto(niv); $<cent>$ = dvar; dvar = 0; } OPAR_ parametrosFormales CPAR_ 
+                    
+                    {
+                    if (!insTdS($2,FUNCION,$1,niv-1,dvar,$5.refe)) {
+                        yyerror("Nombre de funcion repetido");
+                    }
+                    // Se declara funcion main
+                    else if (strcmp($2, "main\0") == 0) $<cent>$ = 1; 
+                    else $<cent>$ = 0; // No se declara funcion main
+                    }
+                    
+                    bloque 
+                    
+                    { descargaContexto(niv); niv--; dvar = $<cent>1; $$ = $<cent>7; }
+        
+;
         
 parametrosFormales  : /* epsilon */ { $$.refe = insTdD(-1,T_VACIO); $$.talla = 0; }
                     | listaParametrosFormales {
@@ -213,15 +231,17 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                         | ID_ OCOR_ expresion CCOR_ ASIG_ expresion PUNTOYCOMA_
                           {
                             SIMB id = obtTdS($1);
-                            DIM dim = obtTdA(id.ref);
                             if (id.t == T_ERROR)
                               yyerror("La variable no esta definida");
                             else if (id.t != T_ARRAY)
                               yyerror("La variable referenciada no es tipo array");
-                            else if ($3 != T_ERROR && $3 != T_ENTERO)
-                              yyerror("Expresion de acceso a array invalida");
-                            else if ($6 != T_ERROR && $6 != dim.telem)
-                              yyerror("El tipo de la variable y la expresion no concuerdan");
+                            else {
+                              DIM dim = obtTdA(id.ref);
+                              if ($3 != T_ERROR && $3 != T_ENTERO)
+                                yyerror("Expresion de acceso a array invalida");
+                              else if ($6 != T_ERROR && $6 != dim.telem)
+                                yyerror("El tipo de la variable y la expresion no concuerdan");
+                            }
                           }
                         | ID_ PUNTO_ ID_ ASIG_ expresion PUNTOYCOMA_
                           {
