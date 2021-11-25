@@ -129,24 +129,6 @@ listaCampos   : tipoSimple ID_ PUNTOYCOMA_
                }
               ;
         
-/*declaracionFuncion  : { niv++; cargaContexto(niv); $<cent>$ = dvar; dvar = 0; } 
-
-                     tipoSimple ID_ OPAR_ parametrosFormales CPAR_ 
-                     
-                     {
-                        if (!insTdS($3,FUNCION,$2,niv-1,dvar,$5.refe)) {
-                          yyerror("Nombre de funcion repetido");
-                        }
-                        // Se declara funcion main
-                        else if (strcmp($3, "main\0") == 0) $<cent>$ = 1; 
-                        else $<cent>$ = 0; // No se declara funcion main
-                     }
-                      
-                     bloque 
-                     
-                     { descargaContexto(niv); niv--; dvar = $<cent>1; $$ = $<cent>7; }
-                      
-                    ;*/
 declaracionFuncion  : 
 
                     tipoSimple ID_  { niv++; cargaContexto(niv); $<cent>$ = dvar; dvar = 0; } OPAR_ parametrosFormales CPAR_ 
@@ -162,7 +144,11 @@ declaracionFuncion  :
                     
                     bloque 
                     
-                    { descargaContexto(niv); niv--; dvar = $<cent>1; $$ = $<cent>7; }
+                    {
+                      if (verTdS) mostrarTdS();
+                      descargaContexto(niv); 
+                      niv--; dvar = $<cent>1; $$ = $<cent>7; 
+                    }
         
 ;
         
@@ -198,7 +184,7 @@ listaParametrosFormales : tipoSimple ID_
 bloque    : OLLA_ declaracionVariableLocal listaInstrucciones RETURN_  expresion PUNTOYCOMA_ CLLA_
             {
               INF fun = obtTdD(-1);
-              if (fun.tipo != T_ERROR) {
+              if (fun.tipo != T_ERROR && $5 != T_ERROR) {
                 if (fun.tipo != $5) yyerror("Tipo del valor de retorno distinto del de la funcion");
               } 
             }
