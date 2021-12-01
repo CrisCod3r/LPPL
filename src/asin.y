@@ -4,16 +4,16 @@
 %{
 #include <stdio.h>
 #include <string.h>
-#include "header.h"
 #include "libtds.h"
+#include "header.h"
 %}
 
 //Uniones
 %union {
     char *ident;       /* Nombre del identificador*/
     int cent;          /* Valor de la cte numerica entera*/
-    /*LC lc;
-    LPF lpf;*/
+//     LC lc;
+//     LPF lpf;
     struct {
         int talla;
         int refe;
@@ -59,12 +59,12 @@
 
 programa     : {niv = 0; dvar = 0; cargaContexto(niv);} listaDeclaraciones
                {
-                if ($2 == 0) {yyerror("No se ha definido funcion main");}
-                else if ($2 > 1) {yyerror("Se ha definido mas de una funcion main");}
+                if ($2 == 0) {yyerror(ERR_NOT_MAIN);}
+                else if ($2 > 1) {yyerror(ERR_MANY_MAIN);}
                }
              ;
              
-listaDeclaraciones    : declaracion {$$ = $1;}
+listaDeclaraciones    : declaracion {$$ = $1;} 
                       | listaDeclaraciones declaracion {$$ = $1 + $2;}
                       ;
                       
@@ -75,25 +75,25 @@ declaracion     : declaracionVariable {$$ = 0;} // No se define funcion main
 declaracionVariable  : tipoSimple ID_ PUNTOYCOMA_
                       {
                         if (!insTdS($2,VARIABLE,$1,niv,dvar,-1))
-                            yyerror("Identificador ya definido");
+                            yyerror(ERR_DUP_ID_VAR);
                         else dvar += TALLA_TIPO_SIMPLE;
                       }
                      | tipoSimple ID_ OCOR_ CONSTANTE_ CCOR_ PUNTOYCOMA_
                       {
                         int numelem = $4;
                         if ($4 <= 0) {
-                            yyerror("Talla inapropiada del array");
+                            yyerror(ERR_ARR_SIZE);
                             numelem = 0;
                         }
                         int refe = insTdA($1, numelem);
                         if (!insTdS($2, VARIABLE,T_ARRAY,niv,dvar,refe))
-                            yyerror("Identificador ya definido");
+                            yyerror(ERR_DUP_ID_VAR);
                         else dvar += numelem * TALLA_TIPO_SIMPLE;
                       }
                      | STRUCT_ OLLA_ listaCampos CLLA_ ID_ PUNTOYCOMA_
                       {
                         if (!insTdS($5,VARIABLE,T_RECORD,niv,dvar,$3.refe)) {
-                          yyerror("Identificador ya definido");
+                          yyerror(ERR_DUP_ID_VAR);
                         } else {
                           dvar += $3.talla;
                         }
@@ -108,7 +108,7 @@ listaCampos   : tipoSimple ID_ PUNTOYCOMA_
                {
                  int refe = insTdR(-1,$2,$1,0);
                  if (refe == -1) {
-                   yyerror("Nombre de campo repetido");
+                   yyerror(ERR_DUP_ID_CAM);
                  }
                  else {
                    $$.refe = refe;
@@ -120,7 +120,7 @@ listaCampos   : tipoSimple ID_ PUNTOYCOMA_
                {
                  int refe = $1.refe;
                  if (insTdR(refe,$3,$2,$1.talla) == -1) {
-                   yyerror("Nombre de campo repetido");
+                   yyerror(ERR_DUP_ID_CAM);
                  }
                  else {
                    $$.refe = refe;
@@ -135,10 +135,10 @@ declaracionFuncion  :
                     
                     {
                     if (!insTdS($2,FUNCION,$1,niv-1,dvar,$5.refe)) {
-                        yyerror("Nombre de funcion repetido");
+                        yyerror(ERR_DUP_ID_FUN);
                     }
                     // Se declara funcion main
-                    else if (strcmp($2, "main\0") == 0) $<cent>$ = 1; 
+                    if (strcmp($2, "main\0") == 0) $<cent>$ = 1; 
                     else $<cent>$ = 0; // No se declara funcion main
                     }
                     
@@ -166,7 +166,7 @@ listaParametrosFormales : tipoSimple ID_
                             int talla = TALLA_TIPO_SIMPLE + TALLA_SEGENLACES;
                             $$.talla = talla;
                             if (!insTdS($2,PARAMETRO,$1,niv,-talla,refe)) {
-                              yyerror("Nombre de parametro duplicado");
+                              yyerror(ERR_DUP_ID_PAR);
                             }
                           }
                         | tipoSimple ID_ COMA_ listaParametrosFormales
@@ -176,7 +176,7 @@ listaParametrosFormales : tipoSimple ID_
                             int talla = $4.talla + TALLA_TIPO_SIMPLE;
                             $$.talla = talla;
                             if (!insTdS($2,PARAMETRO,$1,niv,-talla,refe)) {
-                              yyerror("Nombre de parametro duplicado");
+                              yyerror(ERR_DUP_ID_PAR);
                             }
                           }
                         ;
@@ -184,8 +184,9 @@ listaParametrosFormales : tipoSimple ID_
 bloque    : OLLA_ declaracionVariableLocal listaInstrucciones RETURN_  expresion PUNTOYCOMA_ CLLA_
             {
               INF fun = obtTdD(-1);
-              if (fun.tipo != T_ERROR && $5 != T_ERROR) {
-                if (fun.tipo != $5) yyerror("Tipo del valor de retorno distinto del de la funcion");
+              if (fun.tipo == T_ERROR ) {yyerror(ERR_FUN_NOT_COM);} // Al dar error la TdS, no se inserta en esta y por tanto no esta compilada
+              else if ($5 != T_ERROR && fun.tipo != $5) {
+                yyerror(ERR_RET_TYPE);
               } 
             }
           ;
@@ -209,24 +210,24 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                           {                            
                             SIMB id = obtTdS($1);
                             if (id.t == T_ERROR) 
-                              yyerror("La variable no esta definida");
+                              yyerror(ERR_VAR_NOT_DEF);
                             else if ($3 != T_ERROR && id.t != $3) {
-                              yyerror("El tipo de la variable y la expresion no concuerdan");
+                              yyerror(ERR_ASIG);
                             }
                           }
                         | ID_ OCOR_ expresion CCOR_ ASIG_ expresion PUNTOYCOMA_
                           {
                             SIMB id = obtTdS($1);
                             if (id.t == T_ERROR)
-                              yyerror("La variable no esta definida");
+                              yyerror(ERR_VAR_NOT_DEF);
                             else if (id.t != T_ARRAY)
-                              yyerror("La variable referenciada no es tipo array");
+                              yyerror(ERR_ASIG);
                             else {
                               DIM dim = obtTdA(id.ref);
                               if ($3 != T_ERROR && $3 != T_ENTERO)
-                                yyerror("Expresion de acceso a array invalida");
+                                yyerror(ERR_ARR_ACC);
                               else if ($6 != T_ERROR && $6 != dim.telem)
-                                yyerror("El tipo de la variable y la expresion no concuerdan");
+                                yyerror(ERR_ASIG);
                             }
                           }
                         | ID_ PUNTO_ ID_ ASIG_ expresion PUNTOYCOMA_
@@ -234,11 +235,11 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                             SIMB id = obtTdS($1);
                             CAMP reg = obtTdR(id.ref, $3);
                             if (id.t == T_ERROR)
-                              yyerror("La variable no esta definida");
+                              yyerror(ERR_VAR_NOT_DEF);
                             else if (id.t != T_RECORD)
-                              yyerror("La variable referenciada no es tipo registro");
+                              yyerror(ERR_ASIG);
                             else if ($5 != T_ERROR && $5 != reg.t)
-                              yyerror("El tipo de la variable y la expresion no concuerdan");
+                              yyerror(ERR_ASIG);
                           }
                         ;
         
@@ -246,21 +247,21 @@ instruccionEntradaSalida  : READ_ OPAR_ ID_ CPAR_ PUNTOYCOMA_
                             {
                               SIMB id = obtTdS($3);
                               if (id.t == T_ERROR) 
-                                yyerror("La variable no esta definida");
+                                yyerror(ERR_VAR_NOT_DEF);
                               else if (id.t != T_ENTERO) 
-                                yyerror("La variable de lectura no es de tipo entero");
+                                yyerror(ERR_READ);
                             }
                           | PRINT_ OPAR_ expresion CPAR_ PUNTOYCOMA_
                             {
                               if ($3 != T_ERROR && $3 != T_ENTERO)
-                                yyerror("La expresion a imprimir no es de tipo entero");
+                                yyerror(ERR_PRINT);
                             }
                           ;
         
 instruccionSeleccion   : IF_ OPAR_ expresion CPAR_ 
                         {
                           if ($3 != T_ERROR && $3 != T_LOGICO) 
-                            yyerror("Condicion del if no es booleana");
+                            yyerror(ERR_IF);
                         }
                          instruccion ELSE_ instruccion
                        ;
@@ -268,7 +269,7 @@ instruccionSeleccion   : IF_ OPAR_ expresion CPAR_
 instruccionIteracion   : WHILE_ OPAR_ expresion CPAR_ 
                          {
                            if ($3 != T_ERROR && $3 != T_LOGICO) 
-                             yyerror("Condicion del while no es booleana");
+                             yyerror(ERR_WHILE);
                          }
                          instruccion
                        ;
@@ -282,7 +283,7 @@ expresion     : expresionIgualidad { $$ = $1; }
                    $$ = T_LOGICO;
                  else {
                    $$ = T_ERROR;
-                   yyerror("Operador no compatible con los tipos");
+                   yyerror(ERR_EXP_LOG);
                  }
                }
               ;
@@ -296,7 +297,7 @@ expresionIgualidad  : expresionRelacional { $$ = $1; }
                          $$ = T_LOGICO;
                        else {
                          $$ = T_ERROR;
-                         yyerror("Operador no compatible con los tipos");
+                         yyerror(ERR_EXP_IGU);
                        }                         
                      }
                     ;
@@ -310,7 +311,7 @@ expresionRelacional  : expresionAditiva { $$ = $1; }
                           $$ = T_LOGICO;
                         else {
                           $$ = T_ERROR;
-                          yyerror("Operador no compatible con los tipos");
+                          yyerror(ERR_EXP_REL);
                         }
                       }
                      ;
@@ -324,7 +325,7 @@ expresionAditiva  : expresionMultiplicativa { $$ = $1; }
                        $$ = T_ENTERO;
                      else {
                        $$ = T_ERROR;
-                       yyerror("Operador no compatible con los tipos");
+                       yyerror(ERR_EXP_ADI);
                      }
                    }                 
                   ;
@@ -338,7 +339,7 @@ expresionMultiplicativa  : expresionUnaria { $$ = $1; }
                               $$ = T_ENTERO;
                             else {
                               $$ = T_ERROR;
-                              yyerror("Operador no compatible con los tipos");
+                              yyerror(ERR_EXP_MUL);
                             }
                           }
                          ;
@@ -354,7 +355,7 @@ expresionUnaria  : expresionSufija { $$ = $1; }
                       $$ = T_ENTERO;
                     else {
                       $$ = T_ERROR;
-                      yyerror("Operador no compatible con los tipos");
+                      yyerror(ERR_EXP_UN);
                     }
                   }
                  ;
@@ -366,13 +367,13 @@ expresionSufija  : constante { $$ = $1; }
                     SIMB id = obtTdS($1);
                     $$ = T_ERROR;
                     if (id.t == T_ERROR) {
-                      yyerror("Variable no definida");
+                      yyerror(ERR_VAR_NOT_DEF);
                     }
                     else if (id.t == T_ARRAY) {
-                      yyerror("Array sin indice");
+                      yyerror(ERR_ARR_NOT_IND);
                     }
                     else if (id.t == T_RECORD) {
-                      yyerror("No se accede a ningun registro");
+                      yyerror(ERR_REG_NOT_CAM);
                     }
                     else {
                       $$ = id.t;
@@ -383,23 +384,16 @@ expresionSufija  : constante { $$ = $1; }
                     SIMB id = obtTdS($1);
                     $$ = T_ERROR;
                     if (id.t == T_ERROR) {                      
-                      yyerror("Variable no definida");
+                      yyerror(ERR_VAR_NOT_DEF);
                     }
                     else if (id.t != T_RECORD) {
-                      yyerror("Variable no es de tipo STRUCT");
+                      yyerror(ERR_REG_TYPE);
                     }
                     else {
                       CAMP reg = obtTdR(id.ref, $3);
                       if (reg.t == T_ERROR) {
-                        yyerror("Registro no definido");
+                        yyerror(ERR_CAM_NOT_DEF);
                       }
-                      /*
-                      else if (reg.t == T_ARRAY) {
-                        yyerror("Array sin indice");
-                      }
-                      else if (reg.t == T_RECORD) {
-                        yyerror("No se accede a ningun registro");
-                      }*/
                       else {
                         $$ = reg.t;
                       }
@@ -410,15 +404,15 @@ expresionSufija  : constante { $$ = $1; }
                     SIMB id = obtTdS($1);
                     $$ = T_ERROR;
                     if (id.t == T_ERROR) {                      
-                      yyerror("Variable no definida");
+                      yyerror(ERR_VAR_NOT_DEF);
                     }
                     else if (id.t != T_ARRAY) {
-                      yyerror("Variable no es de tipo array");
+                      yyerror(ERR_ARR_TYPE);
                     }
                     else {
                       DIM elem = obtTdA(id.ref);
                       if ($3 != T_ERROR && $3 != T_ENTERO) {
-                        yyerror("Expresion de acceso a array invalida");
+                        yyerror(ERR_ARR_ACC);
                       }
                       else {
                         $$ = elem.telem;
@@ -430,15 +424,15 @@ expresionSufija  : constante { $$ = $1; }
                     SIMB id = obtTdS($1);
                     $$ = T_ERROR;
                     if (id.t == T_ERROR) {
-                      yyerror("Variable no definida");
+                      yyerror(ERR_VAR_NOT_DEF);
                     }
                     else {
                       INF func = obtTdD(id.ref);
                       if (func.tipo == T_ERROR) {
-                        yyerror("Esta variable no es una funcion");
+                        yyerror(ERR_FUN_TYPE);
                       }
                       else if (!cmpDom(id.ref, $3)){
-                        yyerror("Parametros no adecuados para la funcion");
+                        yyerror(ERR_FUN_PAR);
                       }
                       else {
                         $$ = func.tipo; // Inseguro de mi mismo
