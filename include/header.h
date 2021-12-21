@@ -79,6 +79,9 @@ extern int verTdS;                      /* Flag para saber si mostrar la TdS */
 extern int dvar;               /* Desplazamiento en el Segmento de Variables */
 extern int niv;                /* Nivel de anidamiento "global" o "local"    */
 
+/*********************** Variable externa definida en la librerıa "libgci" ***/
+extern int si;           /* Desplazamiento relativo en el Segmento de Código */
+
 /************************************* Variables externas definidas en el AL */
 extern int yylex();
 extern int yyparse();

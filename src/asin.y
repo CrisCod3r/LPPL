@@ -6,6 +6,7 @@
 #include <string.h>
 #include "libtds.h"
 #include "header.h"
+#include "libgci.h"
 %}
 
 //Uniones
@@ -21,6 +22,11 @@
         int talla;
         int refe;
     } LPF;          /* Lista de parametros formales con: talla y referencia*/
+    
+    struct {
+        int tipo;
+        int desp;
+    } EXP;
 }
 
 //Terminales
@@ -43,20 +49,21 @@
 // No terminales con atributo
 %type<cent> tipoSimple declaracionVariable
 %type<cent> listaDeclaraciones declaracion
-%type<cent> constante 
 %type<cent> operadorAditivo operadorIgualdad operadorLogico 
 %type<cent> operadorMultiplicativo operadorRelacional operadorUnario
-%type<cent> expresionSufija expresionUnaria expresionRelacional
-%type<cent> expresionMultiplicativa expresionIgualidad expresionAditiva
-%type<cent> expresion
+
 %type<cent> parametrosActuales listaParametrosActuales
 %type<LC> listaCampos
 %type<LPF> listaParametrosFormales parametrosFormales
 %type<cent> declaracionFuncion
+
+%type<EXP> expresionSufija expresionUnaria expresionRelacional
+%type<EXP> expresionMultiplicativa expresionIgualidad expresionAditiva
+%type<EXP> expresion constante
 %%
 //Gramática
 
-programa     : {niv = 0; dvar = 0; cargaContexto(niv);} listaDeclaraciones
+programa     : {niv = 0; dvar = 0; cargaContexto(niv); si = 0;} listaDeclaraciones
                {
                  if ($2 == 0) yyerror(ERR_NOT_MAIN);
                  else if ($2 > 1) yyerror(ERR_MANY_MAIN);
@@ -141,7 +148,7 @@ declaracionFuncion  : tipoSimple ID_
                      {
                        if (verTdS) mostrarTdS();
                        descargaContexto(niv); 
-                       niv--; dvar = $<cent>1; $$ = $<cent>7; 
+                       niv--; dvar = $<cent>3; $$ = $<cent>7; 
                      }
                     ;
         
@@ -268,12 +275,19 @@ instruccionIteracion   : WHILE_ OPAR_ expresion CPAR_
 expresion     : expresionIgualidad { $$ = $1; }
               | expresion operadorLogico expresionIgualidad
                {
-                 if ($1 == T_ERROR || $3 == T_ERROR)
-                   $$ = T_ERROR;
-                 else if ($1 == $3 && $1 == T_LOGICO)
-                   $$ = T_LOGICO;
+                 if ($1.tipo == T_ERROR || $3.tipo == T_ERROR)
+                   $$.tipo = T_ERROR;
+                 else if ($1.tipo == $3.tipo && $1.tipo == T_LOGICO) {
+                   $$.tipo = T_LOGICO;
+                   $$.desp = creaVarTemp();
+                   emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
+                   if ($2 == ESUM) { // OR
+                    emite(EMENEQ, crArgPos(niv, $$.desp), crArgEnt(1), crArgEnt(si + 2));
+                    emite(EASIG, crArgEnt(1), crArgNul(), crArgPos(niv, $$.desp));
+                   }
+                 }
                  else {
-                   $$ = T_ERROR;
+                   $$.tipo = T_ERROR;
                    yyerror(ERR_EXP_LOG);
                  }
                }
@@ -282,12 +296,17 @@ expresion     : expresionIgualidad { $$ = $1; }
 expresionIgualidad  : expresionRelacional { $$ = $1; }
                     | expresionIgualidad operadorIgualdad expresionRelacional
                      {
-                       if ($1 == T_ERROR || $3 == T_ERROR)
-                         $$ = T_ERROR;
-                       else if ($1 == $3)
-                         $$ = T_LOGICO;
+                       if ($1.tipo == T_ERROR || $3.tipo == T_ERROR)
+                         $$.tipo = T_ERROR;
+                       else if ($1.tipo == $3.tipo) {
+                         $$.tipo = T_LOGICO;
+                         $$.desp = creaVarTemp();
+                         emite(EASIG, crArgEnt(1), crArgNul(), crArgPos(niv, $$.desp));
+                         emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgEnt(si + 2));
+                         emite(EASIG, crArgEnt(0), crArgNul(), crArgPos(niv, $$.desp));
+                       }
                        else {
-                         $$ = T_ERROR;
+                         $$.tipo = T_ERROR;
                          yyerror(ERR_EXP_IGU);
                        }                         
                      }
@@ -296,12 +315,17 @@ expresionIgualidad  : expresionRelacional { $$ = $1; }
 expresionRelacional  : expresionAditiva { $$ = $1; }
                      | expresionRelacional operadorRelacional expresionAditiva
                       {
-                        if ($1 == T_ERROR || $3 == T_ERROR)
-                          $$ = T_ERROR;
-                        else if ($1 == $3 && $1 == T_ENTERO)
-                          $$ = T_LOGICO;
+                        if ($1.tipo == T_ERROR || $3.tipo == T_ERROR)
+                          $$.tipo = T_ERROR;
+                        else if ($1.tipo == $3.tipo && $1.tipo == T_ENTERO) {
+                          $$.tipo = T_LOGICO;
+                          $$.desp = creaVarTemp();
+                          emite(EASIG, crArgEnt(1), crArgNul(), crArgPos(niv, $$.desp));
+                          emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgEnt(si+2));
+                          emite(EASIG, crArgEnt(0), crArgNul(), crArgPos(niv, $$.desp));
+                        }
                         else {
-                          $$ = T_ERROR;
+                          $$.tipo = T_ERROR;
                           yyerror(ERR_EXP_REL);
                         }
                       }
@@ -310,12 +334,18 @@ expresionRelacional  : expresionAditiva { $$ = $1; }
 expresionAditiva  : expresionMultiplicativa { $$ = $1; }
                   | expresionAditiva operadorAditivo expresionMultiplicativa
                    {
-                     if ($1 == T_ERROR || $3 == T_ERROR)
-                       $$ = T_ERROR;
-                     else if ($1 == $3 && $1 == T_ENTERO) 
-                       $$ = T_ENTERO;
+                     if ($1.tipo == T_ERROR || $3.tipo == T_ERROR)
+                       $$.tipo = T_ERROR;
+                     else if ($1.tipo == $3.tipo && $1.tipo == T_ENTERO) {
+                       $$.tipo = T_ENTERO;
+                       
+                       // ¿Dentro o fuera del else?
+                       
+                       $$.desp = creaVarTemp();
+                       emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp),    crArgPos(niv, $$.desp));
+                     }
                      else {
-                       $$ = T_ERROR;
+                       $$.tipo = T_ERROR;
                        yyerror(ERR_EXP_ADI);
                      }
                    }                 
@@ -324,12 +354,15 @@ expresionAditiva  : expresionMultiplicativa { $$ = $1; }
 expresionMultiplicativa  : expresionUnaria { $$ = $1; }
                          | expresionMultiplicativa operadorMultiplicativo expresionUnaria                        
                           {
-                            if ($1 == T_ERROR || $3 == T_ERROR)
-                              $$ = T_ERROR;
-                            else if ($1 == $3 && $1 == T_ENTERO)
-                              $$ = T_ENTERO;
+                            if ($1.tipo == T_ERROR || $3.tipo == T_ERROR)
+                              $$.tipo = T_ERROR;
+                            else if ($1.tipo == $3.tipo && $1.tipo == T_ENTERO) {
+                              $$.tipo = T_ENTERO;
+                              $$.desp = creaVarTemp();
+                              emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
+                            }
                             else {
-                              $$ = T_ERROR;
+                              $$.tipo = T_ERROR;
                               yyerror(ERR_EXP_MUL);
                             }
                           }
@@ -338,14 +371,20 @@ expresionMultiplicativa  : expresionUnaria { $$ = $1; }
 expresionUnaria  : expresionSufija { $$ = $1; }
                  | operadorUnario expresionUnaria 
                   {
-                    if ($2 == T_ERROR)
+                    if ($2.tipo == T_ERROR)
                       $$ = $2;
-                    else if ($2 == T_LOGICO && $1 == NOTT)
-                      $$ = T_LOGICO;
-                    else if ($2 == T_ENTERO && $1 != NOTT)
-                      $$ = T_ENTERO;
+                    else if ($2.tipo == T_LOGICO && $1 == ESIG) {
+                      $$.tipo = T_LOGICO;
+                      $$.desp = creaVarTemp();
+                      emite(EDIF, crArgEnt(1), crArgPos(niv, $2.desp), crArgPos(niv, $$.desp));
+                    }
+                    else if ($2.tipo == T_ENTERO && $1 != ESIG) {
+                      $$.tipo = T_ENTERO;
+                      $$.desp = creaVarTemp();
+                      emite($1, crArgEnt(0), crArgPos(niv, $2.desp), crArgPos(niv, $$.desp));
+                    }
                     else {
-                      $$ = T_ERROR;
+                      $$.tipo = T_ERROR;
                       yyerror(ERR_EXP_UN);
                     }
                   }
@@ -356,20 +395,23 @@ expresionSufija  : constante { $$ = $1; }
                  | ID_ 
                   {
                     SIMB id = obtTdS($1);
-                    $$ = T_ERROR;
+                    $$.tipo = T_ERROR;
                     if (id.t == T_ERROR)
                       yyerror(ERR_VAR_NOT_DEF);
                     else if (id.t == T_ARRAY)
                       yyerror(ERR_ARR_NOT_IND);
                     else if (id.t == T_RECORD)
                       yyerror(ERR_REG_NOT_CAM);
-                    else
-                      $$ = id.t;
+                    else {
+                      $$.tipo = id.t;
+                      $$.desp = creaVarTemp();
+                      emite(EASIG, crArgPos(niv, id.d), crArgNul(), crArgPos(niv, $$.desp));
+                    }
                   }
                  | ID_ PUNTO_ ID_
                   {
                     SIMB id = obtTdS($1);
-                    $$ = T_ERROR;
+                    $$.tipo = T_ERROR;
                     if (id.t == T_ERROR)                    
                       yyerror(ERR_VAR_NOT_DEF);
                     else if (id.t != T_RECORD)
@@ -378,24 +420,34 @@ expresionSufija  : constante { $$ = $1; }
                       CAMP reg = obtTdR(id.ref, $3);
                       if (reg.t == T_ERROR)
                         yyerror(ERR_CAM_NOT_DEF);
-                      else
-                        $$ = reg.t;
+                      else {
+                        $$.tipo = reg.t;
+                        int d = id.d + reg.d;
+                        $$.desp = creaVarTemp();
+                        emite(EASIG, crArgEnt(d), crArgNul(), crArgPos(niv, $$.desp)); 
+                        // ¿crArgEnt(d) o crArgPos(niv, d)?
+                      }
                     }
                   }
                  | ID_ OCOR_ expresion CCOR_
                   {
                     SIMB id = obtTdS($1);
-                    $$ = T_ERROR;
+                    $$.tipo = T_ERROR;
                     if (id.t == T_ERROR)                     
                       yyerror(ERR_VAR_NOT_DEF);
                     else if (id.t != T_ARRAY)
                       yyerror(ERR_ARR_TYPE);
                     else {
                       DIM elem = obtTdA(id.ref);
-                      if ($3 != T_ERROR && $3 != T_ENTERO)
+                      if ($3.tipo != T_ERROR && $3.tipo != T_ENTERO)
                         yyerror(ERR_ARR_ACC);
-                      else
-                        $$ = elem.telem;
+                      else {
+                        $$.tipo = elem.telem;
+                        int despRel = TALLA_TIPO_SIMPLE * $3.desp;
+                        emite(EASIG, crArgEnt(despRel), crArgNul(), crArgPos(niv, $3.desp));
+                        $$.desp = creaVarTemp();
+                        emite(EAV, crArgPos(niv, id.d), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
+                      }
                     }
                   }
                  | ID_ OPAR_ parametrosActuales CPAR_
@@ -416,9 +468,9 @@ expresionSufija  : constante { $$ = $1; }
                   }
                  ;
         
-constante    : CONSTANTE_ { $$ = T_ENTERO; }
-             | TRUE_ { $$ = T_LOGICO; }
-             | FALSE_ { $$ = T_LOGICO; }
+constante    : CONSTANTE_ { $$.tipo = T_ENTERO; $$.desp = $1;}
+             | TRUE_ { $$.tipo = T_LOGICO; $$.desp = TRUE;}
+             | FALSE_ { $$.tipo = T_LOGICO; $$.desp = FALSE;}
              ;
         
 parametrosActuales  : /*epsilon*/ { insTdD(-1, T_VACIO); }
@@ -435,31 +487,31 @@ listaParametrosActuales : expresion { $$ = insTdD(-1, $1); }
                          }
                         ;
         
-operadorLogico   : AND_ { $$ = ANDD; }
-                 | OR_  { $$ = ORR; }
+operadorLogico   : AND_ { $$ = EMULT; }
+                 | OR_  { $$ = ESUM; }
                  ;
         
-operadorIgualdad   : IGUAL_ { $$ = IGUALL; }
-                   | DESIGUAL_ { $$ = DESIGUALL; }
+operadorIgualdad   : IGUAL_ { $$ = EIGUAL; }
+                   | DESIGUAL_ { $$ = EDIST; }
                    ;
         
-operadorRelacional   : MAYOR_ { $$ = MAYORR; }
-                     | MENOR_ { $$ = MENORR; }
-                     | MAYORIGUAL_ { $$ = MYIGUALL; }
-                     | MENORIGUAL_ { $$ = MNIGUALL; }
+operadorRelacional   : MAYOR_ { $$ = EMAY; }
+                     | MENOR_ { $$ = EMEN; }
+                     | MAYORIGUAL_ { $$ = EMAYEQ; }
+                     | MENORIGUAL_ { $$ = EMENEQ; }
                      ;
         
-operadorAditivo   : MAS_ { $$ = MASS; }
-                  | MENOS_ { $$ = MENOSS; }
+operadorAditivo   : MAS_ { $$ = ESUM; }
+                  | MENOS_ { $$ = EDIF; }
                   ;
         
-operadorMultiplicativo   : MULT_ { $$ = MULTT; }
-                         | DIV_ { $$ = DIVV; }
+operadorMultiplicativo   : MULT_ { $$ = EMULT; }
+                         | DIV_ { $$ = EDIVI; }
                          ;
         
-operadorUnario   : MAS_ { $$ = POSS; }
-                 | MENOS_ {$$ = NEGG; }
-                 | NEGACION_ { $$ = NOTT; }
+operadorUnario   : MAS_ { $$ = ESUM; }
+                 | MENOS_ {$$ = EDIF; }
+                 | NEGACION_ { $$ = ESIG; }
                  ;
         
 
