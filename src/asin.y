@@ -212,6 +212,8 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                              yyerror(ERR_VAR_NOT_DEF);
                            else if ($3 != T_ERROR && id.t != $3)
                              yyerror(ERR_ASIG);
+                           else 
+                             emite(EASIG, crArgPos(niv, $3.desp), crArgNul(), crArgPos(niv, id.d));
                          }
                         | ID_ OCOR_ expresion CCOR_ ASIG_ expresion PUNTOYCOMA_
                          {
@@ -226,6 +228,11 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                                yyerror(ERR_ARR_ACC);
                              else if ($6 != T_ERROR && $6 != dim.telem)
                                yyerror(ERR_ASIG);
+                             else {
+                               emite(EMULT, crArgPos(niv, $3.desp), crArgEnt(TALLA_TIPO_SIMPLE), crArgPos(niv, $3.desp));
+                               emite(EVA, crArgPos(niv, id.d), crArgPos(niv, $3.desp), crArgPos(niv, $6.desp));
+                             }
+                            
                            }
                          }
                         | ID_ PUNTO_ ID_ ASIG_ expresion PUNTOYCOMA_
@@ -238,6 +245,10 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                              yyerror(ERR_ASIG);
                            else if ($5 != T_ERROR && $5 != reg.t)
                              yyerror(ERR_ASIG);
+                           else {
+                             int d = id.d + reg.d;
+                             emite(EASIG, crArgPos(niv, $5.desp), crArgNul(), crArgPos(niv, d));
+                           }
                          }
                         ;
         
@@ -248,11 +259,15 @@ instruccionEntradaSalida  : READ_ OPAR_ ID_ CPAR_ PUNTOYCOMA_
                                yyerror(ERR_VAR_NOT_DEF);
                              else if (id.t != T_ENTERO) 
                                yyerror(ERR_READ);
+                             else 
+                               emite(EREAD, crArgNul(), crArgNul(), crArgPos(niv, id.d));
                            }
                           | PRINT_ OPAR_ expresion CPAR_ PUNTOYCOMA_
                            {
                              if ($3 != T_ERROR && $3 != T_ENTERO)
                                yyerror(ERR_PRINT);
+                             else
+                               emite(EWRITE, crArgNul(), crArgNul(), crArgPos(niv, $3.desp));
                            }
                           ;
         
@@ -443,29 +458,42 @@ expresionSufija  : constante { $$ = $1; }
                         yyerror(ERR_ARR_ACC);
                       else {
                         $$.tipo = elem.telem;
-                        int despRel = TALLA_TIPO_SIMPLE * $3.desp;
-                        emite(EASIG, crArgEnt(despRel), crArgNul(), crArgPos(niv, $3.desp));
+                        emite(EMULT, crArgPos(niv, $3.desp), crArgEnt(TALLA_TIPO_SIMPLE), crArgPos(niv, $3.desp));
                         $$.desp = creaVarTemp();
                         emite(EAV, crArgPos(niv, id.d), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
                       }
                     }
                   }
-                 | ID_ OPAR_ parametrosActuales CPAR_
-                  {
-                    SIMB id = obtTdS($1);
-                    $$ = T_ERROR;
-                    if (id.t == T_ERROR)
-                      yyerror(ERR_VAR_NOT_DEF);
-                    else {
-                      INF func = obtTdD(id.ref);
-                      if (func.tipo == T_ERROR)
-                        yyerror(ERR_FUN_TYPE);
-                      else if (!cmpDom(id.ref, $3))
-                        yyerror(ERR_FUN_PAR);
-                      else
-                        $$ = func.tipo; // Inseguro de mi mismo
-                    }
-                  }
+                 | ID_ OPAR_ 
+                   {
+                     SIMB id = obtTdS($1);
+                     $$.tipo = T_ERROR;
+                     if (id.t == T_ERROR)
+                       yyerror(ERR_VAR_NOT_DEF);
+                     else {
+                       $<SIMB>$ = id;
+                       emite(INCTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE));
+                     }
+                   }
+                 
+                   parametrosActuales CPAR_
+                   {
+                     if ($3.t != T_ERROR) {
+                       INF func = obtTdD(id.ref);
+                       if (func.tipo == T_ERROR)
+                         yyerror(ERR_FUN_TYPE);
+                       else if (!cmpDom(id.ref, $4))
+                         yyerror(ERR_FUN_PAR);
+                       else {
+                         $$.tipo = func.tipo; // Inseguro de mi mismo
+                         emite(EPUSH, crArgNul(), crArgNul(), crArgEnt(si + 2));
+                         emite(CALL, crArgNul(), crArgNul(), crArgEnt($3.d)); // ¿?
+                         emite(DECTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE)); //¿?
+                         $$.desp = creaVarTemp();
+                         emite(EPOP, crArgNul(), crArgNul(), $$.desp);
+                       }
+                     }
+                   }
                  ;
         
 constante    : CONSTANTE_ { $$.tipo = T_ENTERO; $$.desp = $1;}
@@ -480,11 +508,17 @@ parametrosActuales  : /*epsilon*/ { insTdD(-1, T_VACIO); }
                      }
                     ;
         
-listaParametrosActuales : expresion { $$ = insTdD(-1, $1); }
-                        | expresion COMA_ listaParametrosActuales
-                         {
-                           $$ = insTdD($3, $1);
-                         }
+listaParametrosActuales : expresion { 
+                            $$ = insTdD(-1, $1.tipo); 
+                            emite(EPUSH, crArgNul(), crArgNul(), crArgPos(niv, $1.desp));
+                          }
+                        | expresion COMA_ {
+                            emite(EPUSH, crArgNul(), crArgNul(), $1.desp);
+                          }
+                          listaParametrosActuales
+                          {
+                            $$ = insTdD($4, $1.tipo);
+                          }
                         ;
         
 operadorLogico   : AND_ { $$ = EMULT; }
