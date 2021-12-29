@@ -140,15 +140,23 @@ declaracionFuncion  : tipoSimple ID_
                        if (!insTdS($2,FUNCION,$1,niv-1,dvar,$5.refe))
                          yyerror(ERR_DUP_ID_FUN);
                        if (strcmp($2, "main\0") == 0) 
-                         $<cent>$ = 1; // Se declara funcion main
+                         $<EXP>$.tipo = 1; // Se declara funcion main
                        else 
-                         $<cent>$ = 0; // No se declara funcion main
+                         $<EXP>$.tipo = 0; // No se declara funcion main
+                       emite(PUSHFP, crArgNul(), crArgNul(), crArgNul());
+                       emite(FPTOP, crArgNul(), crArgNul(), crArgNul());
+                       $<EXP>$.desp = creaLans(si);
+                       emite(INCTOP, crArgNul(), crArgNul(), crArgEtq(-1));
                      }
                      bloque 
                      {
                        if (verTdS) mostrarTdS();
+                       completaLans($<EXP>7.desp, crArgEnt(dvar));
+                       emite(TOPFP, crArgNul(), crArgNul(), crArgNul());
+                       emite(FPPOP, crArgNul(), crArgNul(), crArgNul());
+                       emite(RET, crArgNul(), crArgNul(), crArgNul());
                        descargaContexto(niv); 
-                       niv--; dvar = $<cent>3; $$ = $<cent>7; 
+                       niv--; dvar = $<cent>3; $$ = $<EXP>7.tipo; 
                      }
                     ;
         
@@ -185,7 +193,7 @@ bloque    : OLLA_ declaracionVariableLocal listaInstrucciones RETURN_  expresion
              INF fun = obtTdD(-1);
              if (fun.tipo == T_ERROR ) 
                yyerror(ERR_FUN_NOT_COM); // Al dar error la TdS, no se inserta en esta y por tanto no esta compilada
-             else if ($5 != T_ERROR && fun.tipo != $5)
+             else if ($5.tipo != T_ERROR && fun.tipo != $5.tipo)
                yyerror(ERR_RET_TYPE);
            }
           ;
@@ -210,7 +218,7 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                            SIMB id = obtTdS($1);
                            if (id.t == T_ERROR) 
                              yyerror(ERR_VAR_NOT_DEF);
-                           else if ($3 != T_ERROR && id.t != $3)
+                           else if ($3.tipo != T_ERROR && id.t != $3.tipo)
                              yyerror(ERR_ASIG);
                            else 
                              emite(EASIG, crArgPos(niv, $3.desp), crArgNul(), crArgPos(niv, id.d));
@@ -224,9 +232,9 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                              yyerror(ERR_ASIG);
                            else {
                              DIM dim = obtTdA(id.ref);
-                             if ($3 != T_ERROR && $3 != T_ENTERO)
+                             if ($3.tipo != T_ERROR && $3.tipo != T_ENTERO)
                                yyerror(ERR_ARR_ACC);
-                             else if ($6 != T_ERROR && $6 != dim.telem)
+                             else if ($6.tipo != T_ERROR && $6.tipo != dim.telem)
                                yyerror(ERR_ASIG);
                              else {
                                emite(EMULT, crArgPos(niv, $3.desp), crArgEnt(TALLA_TIPO_SIMPLE), crArgPos(niv, $3.desp));
@@ -243,7 +251,7 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                              yyerror(ERR_VAR_NOT_DEF);
                            else if (id.t != T_RECORD)
                              yyerror(ERR_ASIG);
-                           else if ($5 != T_ERROR && $5 != reg.t)
+                           else if ($5.tipo != T_ERROR && $5.tipo != reg.t)
                              yyerror(ERR_ASIG);
                            else {
                              int d = id.d + reg.d;
@@ -259,32 +267,55 @@ instruccionEntradaSalida  : READ_ OPAR_ ID_ CPAR_ PUNTOYCOMA_
                                yyerror(ERR_VAR_NOT_DEF);
                              else if (id.t != T_ENTERO) 
                                yyerror(ERR_READ);
-                             else 
-                               emite(EREAD, crArgNul(), crArgNul(), crArgPos(niv, id.d));
+                             emite(EREAD, crArgNul(), crArgNul(), crArgPos(niv, id.d));
                            }
                           | PRINT_ OPAR_ expresion CPAR_ PUNTOYCOMA_
                            {
-                             if ($3 != T_ERROR && $3 != T_ENTERO)
+                             if ($3.tipo != T_ERROR && $3.tipo != T_ENTERO)
                                yyerror(ERR_PRINT);
-                             else
-                               emite(EWRITE, crArgNul(), crArgNul(), crArgPos(niv, $3.desp));
+                             emite(EWRITE, crArgNul(), crArgNul(), crArgPos(niv, $3.desp));
                            }
                           ;
         
 instruccionSeleccion   : IF_ OPAR_ expresion CPAR_ 
                         {
-                          if ($3 != T_ERROR && $3 != T_LOGICO) 
+                          if ($3.tipo != T_ERROR && $3.tipo != T_LOGICO) 
                             yyerror(ERR_IF);
-                        }
-                         instruccion ELSE_ instruccion
-                       ;
-        
-instruccionIteracion   : WHILE_ OPAR_ expresion CPAR_ 
-                        {
-                          if ($3 != T_ERROR && $3 != T_LOGICO) 
-                            yyerror(ERR_WHILE);
+                          else {
+                            $<cent>$ = creaLans(si);
+                            emite(EIGUAL, crArgPos(niv, $3.desp), crArgEnt(0), crArgEtq(-1));
+                          }
                         }
                          instruccion
+                        {
+                          $<cent>$ = creaLans(si);
+                          emite(GOTOS,crArgNul(), crArgNul(), crArgEtq(-1));
+                          completaLans($<cent>5, crArgEtq(si));
+                        }
+                         ELSE_ instruccion
+                        {
+                          completaLans($<cent>7, crArgEtq(si));
+                        }
+                       ;
+        
+instruccionIteracion   : WHILE_ 
+                        {
+                          $<cent>$ = si;
+                        }
+                         OPAR_ expresion CPAR_ 
+                        {
+                          if ($4.tipo != T_ERROR && $4.tipo != T_LOGICO) 
+                            yyerror(ERR_WHILE);
+                          else {
+                            $<cent>$ = creaLans(si);
+                            emite(EIGUAL, crArgPos(niv, $4.desp), crArgEnt(0), crArgEtq(-1));
+                          }
+                        }
+                         instruccion
+                        {
+                          emite(GOTOS, crArgNul(), crArgNul(), crArgEtq($<cent>2));
+                          completaLans($<cent>6, crArgEtq(si));
+                        }
                        ;
 
 expresion     : expresionIgualidad { $$ = $1; }
@@ -466,19 +497,16 @@ expresionSufija  : constante { $$ = $1; }
                   }
                  | ID_ OPAR_ 
                    {
-                     SIMB id = obtTdS($1);
-                     $$.tipo = T_ERROR;
-                     if (id.t == T_ERROR)
-                       yyerror(ERR_VAR_NOT_DEF);
-                     else {
-                       $<SIMB>$ = id;
-                       emite(INCTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE));
-                     }
+                     emite(INCTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE));
                    }
-                 
                    parametrosActuales CPAR_
                    {
-                     if ($3.t != T_ERROR) {
+                     SIMB id = obtTdS($1);
+                     $$.tipo = T_ERROR;
+                     if (id.t == T_ERROR) {
+                       yyerror(ERR_VAR_NOT_DEF);
+                     }
+                     else {
                        INF func = obtTdD(id.ref);
                        if (func.tipo == T_ERROR)
                          yyerror(ERR_FUN_TYPE);
@@ -487,10 +515,10 @@ expresionSufija  : constante { $$ = $1; }
                        else {
                          $$.tipo = func.tipo; // Inseguro de mi mismo
                          emite(EPUSH, crArgNul(), crArgNul(), crArgEnt(si + 2));
-                         emite(CALL, crArgNul(), crArgNul(), crArgEnt($3.d)); // ¿?
-                         emite(DECTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE)); //¿?
+                         emite(CALL, crArgNul(), crArgNul(), crArgEnt(id.d));
+                         emite(DECTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE));
                          $$.desp = creaVarTemp();
-                         emite(EPOP, crArgNul(), crArgNul(), $$.desp);
+                         emite(EPOP, crArgNul(), crArgNul(), crArgPos(niv, $$.desp));
                        }
                      }
                    }
@@ -512,8 +540,9 @@ listaParametrosActuales : expresion {
                             $$ = insTdD(-1, $1.tipo); 
                             emite(EPUSH, crArgNul(), crArgNul(), crArgPos(niv, $1.desp));
                           }
-                        | expresion COMA_ {
-                            emite(EPUSH, crArgNul(), crArgNul(), $1.desp);
+                        | expresion COMA_ 
+                          {
+                            emite(EPUSH, crArgNul(), crArgNul(), crArgPos(niv, $1.desp));
                           }
                           listaParametrosActuales
                           {
