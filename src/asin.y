@@ -27,6 +27,11 @@
         int tipo;
         int desp;
     } EXP;
+    
+    struct {
+        int ref1;
+        int ref2;
+    } REF;
 }
 
 //Terminales
@@ -63,10 +68,28 @@
 %%
 //Gramática
 
-programa     : {niv = 0; dvar = 0; cargaContexto(niv); si = 0;} listaDeclaraciones
+programa     : {
+                 niv = 0; dvar = 0; si = 0; cargaContexto(niv);
+               
+                 // Reserva de espacio para variables globales
+                 $<REF>$.ref1 = creaLans(si);
+                 emite(INCTOP, crArgNul(), crArgNul(), crArgEnt(-1));
+                 // Salto a funcion main
+                 $<REF>$.ref2 = creaLans(si);
+                 emite(GOTOS, crArgNul(), crArgNul(), crArgEtq(-1));
+               }
+               
+               listaDeclaraciones
+               
                {
                  if ($2 == 0) yyerror(ERR_NOT_MAIN);
                  else if ($2 > 1) yyerror(ERR_MANY_MAIN);
+                 else {
+                   // Completa LANS para variables globales
+                   completaLans($<REF>1.ref1, crArgEnt(dvar));
+                   // Completa LANS salto a main
+                   completaLans($<REF>1.ref2, crArgEtq(obtTdS("main").d));
+                 }
                }
              ;
              
@@ -137,26 +160,17 @@ declaracionFuncion  : tipoSimple ID_
                      { niv++; cargaContexto(niv); $<cent>$ = dvar; dvar = 0; } 
                      OPAR_ parametrosFormales CPAR_ 
                      {
-                       if (!insTdS($2,FUNCION,$1,niv-1,dvar,$5.refe))
+                       if (!insTdS($2,FUNCION,$1,niv-1,si,$5.refe))
                          yyerror(ERR_DUP_ID_FUN);
-                       if (strcmp($2, "main\0") == 0) 
-                         $<EXP>$.tipo = 1; // Se declara funcion main
-                       else 
-                         $<EXP>$.tipo = 0; // No se declara funcion main
-                       emite(PUSHFP, crArgNul(), crArgNul(), crArgNul());
-                       emite(FPTOP, crArgNul(), crArgNul(), crArgNul());
-                       $<EXP>$.desp = creaLans(si);
-                       emite(INCTOP, crArgNul(), crArgNul(), crArgEtq(-1));
+                       if (strcmp($2, "main\0") == 0) $<cent>$ = 1;
+                       else $<cent>$ = 0;
                      }
                      bloque 
                      {
                        if (verTdS) mostrarTdS();
-                       completaLans($<EXP>7.desp, crArgEnt(dvar));
-                       emite(TOPFP, crArgNul(), crArgNul(), crArgNul());
-                       emite(FPPOP, crArgNul(), crArgNul(), crArgNul());
-                       emite(RET, crArgNul(), crArgNul(), crArgNul());
+                    
                        descargaContexto(niv); 
-                       niv--; dvar = $<cent>3; $$ = $<EXP>7.tipo; 
+                       niv--; dvar = $<cent>3; $$ = $<cent>7; 
                      }
                     ;
         
@@ -188,13 +202,35 @@ listaParametrosFormales : tipoSimple ID_
                          }
                         ;
         
-bloque    : OLLA_ declaracionVariableLocal listaInstrucciones RETURN_  expresion PUNTOYCOMA_ CLLA_
+bloque    : { 
+             // Carga de los enlaces de control
+             emite(PUSHFP, crArgNul(), crArgNul(), crArgNul());
+             emite(FPTOP, crArgNul(), crArgNul(), crArgNul());
+             // Reserva espacio para las variables locales y temporales
+             $<REF>$.ref1 = creaLans(si);
+             emite(INCTOP, crArgNul(), crArgNul(), crArgEnt(-1));
+           }
+           OLLA_ declaracionVariableLocal listaInstrucciones RETURN_  expresion PUNTOYCOMA_ CLLA_
            {
              INF fun = obtTdD(-1);
              if (fun.tipo == T_ERROR ) 
                yyerror(ERR_FUN_NOT_COM); // Al dar error la TdS, no se inserta en esta y por tanto no esta compilada
-             else if ($5.tipo != T_ERROR && fun.tipo != $5.tipo)
+             else if ($6.tipo != T_ERROR && fun.tipo != $6.tipo)
                yyerror(ERR_RET_TYPE);
+               
+             // Completa la reserva de espacio para las variables locales y temporales
+             completaLans($<REF>1.ref1, crArgEnt(dvar));
+             // Guardar el valor de retorno
+             int dret; // desplazamiento del valor de retorno en el RA
+             dret = TALLA_SEGENLACES + fun.tsp + TALLA_TIPO_SIMPLE;
+             emite(EASIG, crArgPos(niv, $6.desp), crArgNul(), crArgPos(niv, -dret));
+             // Libera el segmento de variables locales y temporales
+             emite(TOPFP, crArgNul(), crArgNul(), crArgNul());
+             // Descarga de los enlaces de control
+             emite(FPPOP, crArgNul(), crArgNul(), crArgNul());
+             // Emite FIN si es "main" y RETURN si no
+             if (strcmp(fun.nom, "main") == 0) emite(FIN, crArgNul(), crArgNul(), crArgNul());
+             else emite(RET, crArgNul(), crArgNul(), crArgNul());
            }
           ;
         
@@ -221,7 +257,7 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                            else if ($3.tipo != T_ERROR && id.t != $3.tipo)
                              yyerror(ERR_ASIG);
                            else 
-                             emite(EASIG, crArgPos(niv, $3.desp), crArgNul(), crArgPos(niv, id.d));
+                             emite(EASIG, crArgPos(niv, $3.desp), crArgNul(), crArgPos(id.n, id.d));
                          }
                         | ID_ OCOR_ expresion CCOR_ ASIG_ expresion PUNTOYCOMA_
                          {
@@ -238,7 +274,7 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                                yyerror(ERR_ASIG);
                              else {
                                emite(EMULT, crArgPos(niv, $3.desp), crArgEnt(TALLA_TIPO_SIMPLE), crArgPos(niv, $3.desp));
-                               emite(EVA, crArgPos(niv, id.d), crArgPos(niv, $3.desp), crArgPos(niv, $6.desp));
+                               emite(EVA, crArgPos(id.n, id.d), crArgPos(niv, $3.desp), crArgPos(niv, $6.desp));
                              }
                             
                            }
@@ -255,7 +291,7 @@ instruccionAsignacion   : ID_ ASIG_ expresion PUNTOYCOMA_
                              yyerror(ERR_ASIG);
                            else {
                              int d = id.d + reg.d;
-                             emite(EASIG, crArgPos(niv, $5.desp), crArgNul(), crArgPos(niv, d));
+                             emite(EASIG, crArgPos(niv, $5.desp), crArgNul(), crArgPos(id.n, d));
                            }
                          }
                         ;
@@ -267,7 +303,7 @@ instruccionEntradaSalida  : READ_ OPAR_ ID_ CPAR_ PUNTOYCOMA_
                                yyerror(ERR_VAR_NOT_DEF);
                              else if (id.t != T_ENTERO) 
                                yyerror(ERR_READ);
-                             emite(EREAD, crArgNul(), crArgNul(), crArgPos(niv, id.d));
+                             emite(EREAD, crArgNul(), crArgNul(), crArgPos(id.n, id.d));
                            }
                           | PRINT_ OPAR_ expresion CPAR_ PUNTOYCOMA_
                            {
@@ -328,7 +364,7 @@ expresion     : expresionIgualidad { $$ = $1; }
                    $$.desp = creaVarTemp();
                    emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
                    if ($2 == ESUM) { // OR
-                    emite(EMENEQ, crArgPos(niv, $$.desp), crArgEnt(1), crArgEnt(si + 2));
+                    emite(EMENEQ, crArgPos(niv, $$.desp), crArgEnt(1), crArgEtq(si + 2));
                     emite(EASIG, crArgEnt(1), crArgNul(), crArgPos(niv, $$.desp));
                    }
                  }
@@ -348,7 +384,7 @@ expresionIgualidad  : expresionRelacional { $$ = $1; }
                          $$.tipo = T_LOGICO;
                          $$.desp = creaVarTemp();
                          emite(EASIG, crArgEnt(1), crArgNul(), crArgPos(niv, $$.desp));
-                         emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgEnt(si + 2));
+                         emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgEtq(si + 2));
                          emite(EASIG, crArgEnt(0), crArgNul(), crArgPos(niv, $$.desp));
                        }
                        else {
@@ -367,7 +403,7 @@ expresionRelacional  : expresionAditiva { $$ = $1; }
                           $$.tipo = T_LOGICO;
                           $$.desp = creaVarTemp();
                           emite(EASIG, crArgEnt(1), crArgNul(), crArgPos(niv, $$.desp));
-                          emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgEnt(si+2));
+                          emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgEtq(si+2));
                           emite(EASIG, crArgEnt(0), crArgNul(), crArgPos(niv, $$.desp));
                         }
                         else {
@@ -388,7 +424,7 @@ expresionAditiva  : expresionMultiplicativa { $$ = $1; }
                        // ¿Dentro o fuera del else?
                        
                        $$.desp = creaVarTemp();
-                       emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp),    crArgPos(niv, $$.desp));
+                       emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
                      }
                      else {
                        $$.tipo = T_ERROR;
@@ -436,7 +472,10 @@ expresionUnaria  : expresionSufija { $$ = $1; }
                   }
                  ;
         
-expresionSufija  : constante { $$ = $1; }
+expresionSufija  : constante { $$.tipo = $1.tipo; 
+                        $$.desp = creaVarTemp();
+                        emite(EASIG, crArgEnt($1.desp), crArgNul(), crArgPos(niv, $$.desp));
+                  } // Faltan cosas??
                  | OPAR_ expresion CPAR_ { $$ = $2; }
                  | ID_ 
                   {
@@ -451,7 +490,7 @@ expresionSufija  : constante { $$ = $1; }
                     else {
                       $$.tipo = id.t;
                       $$.desp = creaVarTemp();
-                      emite(EASIG, crArgPos(niv, id.d), crArgNul(), crArgPos(niv, $$.desp));
+                      emite(EASIG, crArgPos(id.n, id.d), crArgNul(), crArgPos(niv, $$.desp));
                     }
                   }
                  | ID_ PUNTO_ ID_
@@ -470,8 +509,7 @@ expresionSufija  : constante { $$ = $1; }
                         $$.tipo = reg.t;
                         int d = id.d + reg.d;
                         $$.desp = creaVarTemp();
-                        emite(EASIG, crArgEnt(d), crArgNul(), crArgPos(niv, $$.desp)); 
-                        // ¿crArgEnt(d) o crArgPos(niv, d)?
+                        emite(EASIG, crArgPos(id.n, d), crArgNul(), crArgPos(niv, $$.desp));
                       }
                     }
                   }
@@ -491,12 +529,13 @@ expresionSufija  : constante { $$ = $1; }
                         $$.tipo = elem.telem;
                         emite(EMULT, crArgPos(niv, $3.desp), crArgEnt(TALLA_TIPO_SIMPLE), crArgPos(niv, $3.desp));
                         $$.desp = creaVarTemp();
-                        emite(EAV, crArgPos(niv, id.d), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
+                        emite(EAV, crArgPos(id.n, id.d), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
                       }
                     }
                   }
                  | ID_ OPAR_ 
                    {
+                     // Reserva espacio para el valor de retorno
                      emite(INCTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE));
                    }
                    parametrosActuales CPAR_
@@ -514,10 +553,12 @@ expresionSufija  : constante { $$ = $1; }
                          yyerror(ERR_FUN_PAR);
                        else {
                          $$.tipo = func.tipo; // Inseguro de mi mismo
-                         emite(EPUSH, crArgNul(), crArgNul(), crArgEnt(si + 2));
-                         emite(CALL, crArgNul(), crArgNul(), crArgEnt(id.d));
-                         emite(DECTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE));
                          $$.desp = creaVarTemp();
+                         // Llamada a la funcion (Ya incluye push)
+                         emite(CALL, crArgNul(), crArgNul(), crArgEtq(id.d));
+                         // Desapila el segmento de parametros
+                         emite(DECTOP, crArgNul(), crArgNul(), crArgEnt(func.tsp));
+                         // Desapila y asigna el valor de retorno
                          emite(EPOP, crArgNul(), crArgNul(), crArgPos(niv, $$.desp));
                        }
                      }
