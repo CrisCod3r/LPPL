@@ -420,9 +420,6 @@ expresionAditiva  : expresionMultiplicativa { $$ = $1; }
                        $$.tipo = T_ERROR;
                      else if ($1.tipo == $3.tipo && $1.tipo == T_ENTERO) {
                        $$.tipo = T_ENTERO;
-                       
-                       // ¿Dentro o fuera del else?
-                       
                        $$.desp = creaVarTemp();
                        emite($2, crArgPos(niv, $1.desp), crArgPos(niv, $3.desp), crArgPos(niv, $$.desp));
                      }
@@ -475,7 +472,7 @@ expresionUnaria  : expresionSufija { $$ = $1; }
 expresionSufija  : constante { $$.tipo = $1.tipo; 
                         $$.desp = creaVarTemp();
                         emite(EASIG, crArgEnt($1.desp), crArgNul(), crArgPos(niv, $$.desp));
-                  } // Faltan cosas??
+                  }
                  | OPAR_ expresion CPAR_ { $$ = $2; }
                  | ID_ 
                   {
@@ -536,7 +533,7 @@ expresionSufija  : constante { $$.tipo = $1.tipo;
                  | ID_ OPAR_ 
                    {
                      // Reserva espacio para el valor de retorno
-                     emite(INCTOP, crArgNul(), crArgNul(), crArgEnt(TALLA_TIPO_SIMPLE));
+                     emite(EPUSH, crArgNul(), crArgNul(), crArgEnt(0));
                    }
                    parametrosActuales CPAR_
                    {

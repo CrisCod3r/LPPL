@@ -50,7 +50,7 @@
  49 PUSHFP              ,            ,            
  50 FPTOP               ,            ,            
  51 INCTOP              ,            ,  i:  30    
- 52 INCTOP              ,            ,  i:   1    
+ 52 EPUSH               ,            ,  i:   0    
  53 EASIG     i:  10    ,            ,  p: (1,  2)
  54 EPUSH               ,            ,  p: (1,  2)
  55 CALL                ,            ,  e:   2    
@@ -91,8 +91,8 @@
  90 EASIG     p: (1, 22),            ,  p: (1,  1)
  91 GOTOS               ,            ,  e:  92    
  92 GOTOS               ,            ,  e:  60    
- 93 INCTOP              ,            ,  i:   1    
- 94 INCTOP              ,            ,  i:   1    
+ 93 EPUSH               ,            ,  i:   0    
+ 94 EPUSH               ,            ,  i:   0    
  95 EASIG     p: (0, 10),            ,  p: (1, 23)
  96 EMULT     p: (1, 23),  i:   1    ,  p: (1, 23)
  97 EAV       p: (0,  0),  p: (1, 23),  p: (1, 24)
